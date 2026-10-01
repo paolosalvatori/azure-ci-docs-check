@@ -1,0 +1,8 @@
+# .lstk/config.toml
+[[containers]]
+type = "azure"   # Start the Azure emulator
+port = "4566"
+env  = ["ci"]    # Apply the [env.ci] profile below
+
+[env.ci]
+MSSQL_ACCEPT_EULA = "Y"   # Needed by Azure SQL Database

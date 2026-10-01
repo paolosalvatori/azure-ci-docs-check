@@ -1,0 +1,45 @@
+name: Test against LocalStack for Azure (arm64)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install lstk
+        run: npm install -g @localstack/lstk
+
+      - name: Start LocalStack
+        run: lstk start --type azure
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+      - name: Set up the Azure CLI integration
+        run: lstk setup azure
+
+      - name: Deploy the infrastructure
+        run: |
+          lstk az group create --name my-rg --location westeurope
+          lstk az storage account create --name mystorageaccount --resource-group my-rg --location westeurope --sku Standard_LRS
+
+      - name: Run the tests
+        # Replace this step with your own test command.
+        run: lstk az storage account show --name mystorageaccount --resource-group my-rg --query provisioningState --output tsv
+
+      - name: Save the LocalStack logs
+        if: always()
+        run: lstk logs --verbose > localstack.log
+
+      - name: Upload the LocalStack logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: localstack-logs
+          path: localstack.log

@@ -1,0 +1,145 @@
+name: Page snippets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # github-actions.md: "Configuration", "Deploy with the Azure CLI" (Bicep) and "Save the LocalStack logs"
+  config-bicep-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Runner tools
+        run: |
+          node --version
+          az version --query '"azure-cli"' -o tsv
+          docker version --format '{{.Server.Version}}'
+          which bicep && bicep --version || echo "bicep not on PATH"
+      - name: Install lstk
+        run: npm install -g @localstack/lstk
+      - name: Start LocalStack
+        run: lstk start --type azure
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          LOCALSTACK_DEBUG: "1"
+          LOCALSTACK_MSSQL_ACCEPT_EULA: "Y"
+      - name: Check the forwarded variables inside the container
+        run: |
+          docker exec localstack-azure sh -c 'tr "\0" "\n" < /proc/1/environ' | grep -E '^(DEBUG|MSSQL_ACCEPT_EULA)='
+      - name: Set up the Azure CLI integration
+        run: lstk setup azure
+
+      - name: Deploy the infrastructure
+        run: |
+          lstk az group create --name my-rg --location westeurope
+          lstk az deployment group create --resource-group my-rg --template-file main.bicep
+      - name: Check the Bicep deployment
+        run: lstk az storage account list --resource-group my-rg --query "[].name" --output tsv
+      - name: Save the LocalStack logs
+        if: always()
+        run: lstk logs --verbose > localstack.log
+
+      - name: Upload the LocalStack logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: localstack-logs
+          path: localstack.log
+      - name: Check that the logs contain DEBUG lines
+        if: always()
+        run: |
+          wc -l localstack.log
+          grep -c "DEBUG" localstack.log
+
+  # best-practices.mdx: the committed .lstk/config.toml, without --type
+  config-toml:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: config-toml-test
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install lstk
+        run: npm install -g @localstack/lstk
+      - name: Start LocalStack from .lstk/config.toml
+        run: lstk start
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      - name: Check the emulator type and the env profile
+        run: |
+          lstk status
+          docker exec localstack-azure sh -c 'tr "\0" "\n" < /proc/1/environ' | grep -E '^MSSQL_ACCEPT_EULA='
+      - name: Check what lstk wrote next to the config
+        run: |
+          lstk setup azure
+          ls -A .lstk
+
+  # best-practices.mdx: interception and Terraform
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install lstk
+        run: npm install -g @localstack/lstk
+      - name: Start LocalStack
+        run: lstk start --type azure
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: Deploy with Terraform
+        working-directory: terraform-test
+        run: |
+          lstk az start-interception
+          terraform init
+          terraform apply -auto-approve
+      - name: Check with plain az
+        run: az group show --name tf-rg --query properties.provisioningState --output tsv
+
+  # best-practices.mdx: without a config file, a non-interactive start picks the AWS emulator
+  default-type:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install lstk
+        run: npm install -g @localstack/lstk
+      - name: Start without a config file or --type
+        run: |
+          set +e
+          timeout 30 lstk start > start.log 2>&1
+          echo "exit=$?"
+          head -5 start.log
+          grep -F "Configured with default emulator" start.log
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+  # github-actions.md: "Current limitations"
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Docker on the Windows runner
+        shell: bash
+        run: |
+          docker version --format '{{.Server.Os}}/{{.Server.Arch}}' || echo "docker failed"
+          npm install -g @localstack/lstk
+          set +e
+          lstk start --type azure 2>&1 | tail -20
+          echo "lstk exit=${PIPESTATUS[0]}"
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Docker on the macOS runner
+        run: |
+          command -v docker || echo "docker is not installed"
+          npm install -g @localstack/lstk
+          set +e
+          lstk start --type azure 2>&1 | tail -20
+          echo "lstk exit=${PIPESTATUS[0]}"
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
