@@ -11,15 +11,9 @@ jobs:
   config-bicep-logs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - name: Runner tools
-        run: |
-          node --version
-          az version --query '"azure-cli"' -o tsv
-          docker version --format '{{.Server.Version}}'
-          which bicep && bicep --version || echo "bicep not on PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install lstk
-        run: npm install -g @localstack/lstk
+        run: npm install -g @localstack/lstk@1.2.0
       - name: Start LocalStack
         run: lstk start --type azure
         env:
@@ -44,7 +38,7 @@ jobs:
 
       - name: Upload the LocalStack logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: localstack-logs
           path: localstack.log
@@ -61,9 +55,9 @@ jobs:
       run:
         working-directory: config-toml-test
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install lstk
-        run: npm install -g @localstack/lstk
+        run: npm install -g @localstack/lstk@1.2.0
       - name: Start LocalStack from .lstk/config.toml
         run: lstk start
         env:
@@ -77,13 +71,13 @@ jobs:
           lstk setup azure
           ls -A .lstk
 
-  # best-practices.mdx: interception and Terraform
+  # best-practices.mdx: interception and Terraform through ARM_* variables (block copied verbatim)
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install lstk
-        run: npm install -g @localstack/lstk
+        run: npm install -g @localstack/lstk@1.2.0
       - name: Start LocalStack
         run: lstk start --type azure
         env:
@@ -91,10 +85,14 @@ jobs:
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
+      - name: Show the provider block (no metadata_host or subscription_id)
+        run: cat terraform-test/providers.tf
       - name: Deploy with Terraform
         working-directory: terraform-test
         run: |
           lstk az start-interception
+          export ARM_METADATA_HOSTNAME="azure.localhost.localstack.cloud:4566"
+          export ARM_SUBSCRIPTION_ID="00000000-0000-0000-0000-000000000000"
           terraform init
           terraform apply -auto-approve
       - name: Check with plain az
@@ -105,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install lstk
-        run: npm install -g @localstack/lstk
+        run: npm install -g @localstack/lstk@1.2.0
       - name: Start without a config file or --type
         run: |
           set +e
@@ -124,7 +122,7 @@ jobs:
         shell: bash
         run: |
           docker version --format '{{.Server.Os}}/{{.Server.Arch}}' || echo "docker failed"
-          npm install -g @localstack/lstk
+          npm install -g @localstack/lstk@1.2.0
           set +e
           lstk start --type azure 2>&1 | tail -20
           echo "lstk exit=${PIPESTATUS[0]}"
@@ -137,7 +135,7 @@ jobs:
       - name: Docker on the macOS runner
         run: |
           command -v docker || echo "docker is not installed"
-          npm install -g @localstack/lstk
+          npm install -g @localstack/lstk@1.2.0
           set +e
           lstk start --type azure 2>&1 | tail -20
           echo "lstk exit=${PIPESTATUS[0]}"
